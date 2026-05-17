@@ -12,7 +12,7 @@ FROM dunglas/frankenphp:latest-php8.3-alpine
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies and PHP extensions
+# Install system dependencies
 RUN apk add --no-cache \
     bash \
     git \
@@ -20,8 +20,11 @@ RUN apk add --no-cache \
     libzip-dev \
     zip \
     unzip \
-    icu-dev
+    icu-dev \
+    libxml2-dev \
+    sqlite-dev
 
+# Install PHP extensions
 RUN install-php-extensions \
     pcntl \
     bcmath \
@@ -29,7 +32,12 @@ RUN install-php-extensions \
     intl \
     zip \
     pdo_mysql \
-    pdo_pgsql
+    pdo_pgsql \
+    pdo_sqlite \
+    mbstring \
+    xml \
+    dom \
+    curl
 
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
@@ -41,7 +49,8 @@ COPY . .
 COPY --from=assets-builder /app/public/build ./public/build
 
 # Install PHP dependencies
-RUN composer install --no-dev --optimize-autoloader --no-interaction
+# Kita tambahkan --no-scripts dulu untuk menghindari error package:discover jika environment belum siap
+RUN composer install --no-dev --optimize-autoloader --no-interaction --no-scripts
 
 # Set permissions
 RUN chown -R www-data:www-data storage bootstrap/cache
@@ -55,4 +64,4 @@ ENV FRANKENPHP_CONFIG="worker ./public/index.php"
 EXPOSE 80
 
 # Jalankan optimasi Laravel dan jalankan server
-CMD sh -c "php artisan config:cache && php artisan route:cache && php artisan view:cache && if [ \"\$RUN_MIGRATIONS\" = \"true\" ]; then php artisan migrate --force; fi && frankenphp php-server -r public/"
+CMD sh -c "php artisan package:discover --ansi && php artisan config:cache && php artisan route:cache && php artisan view:cache && if [ \"\$RUN_MIGRATIONS\" = \"true\" ]; then php artisan migrate --force; fi && frankenphp php-server -r public/"
