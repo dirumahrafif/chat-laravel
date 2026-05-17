@@ -19,37 +19,27 @@ RUN npm run build
 # =========================
 FROM php:8.4-apache
 
-# Set working directory
 WORKDIR /var/www/html
 
-# Install system dependencies
+# Install dependencies
 RUN apt-get update && apt-get install -y \
-    git \
     curl \
     unzip \
     zip \
-    libpng-dev \
-    libonig-dev \
-    libxml2-dev \
-    libsqlite3-dev \
+    git \
     libzip-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install PHP extensions
+# Install only required PHP extensions
 RUN docker-php-ext-install \
     pdo_mysql \
-    pdo_sqlite \
     mbstring \
-    exif \
-    pcntl \
-    bcmath \
-    gd \
     zip
 
-# Enable Apache rewrite module
+# Enable rewrite
 RUN a2enmod rewrite
 
-# Set Apache DocumentRoot to Laravel public folder
+# Laravel public folder
 ENV APACHE_DOCUMENT_ROOT=/var/www/html/public
 
 RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' \
@@ -59,51 +49,40 @@ RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' \
     /etc/apache2/apache2.conf \
     /etc/apache2/conf-available/*.conf
 
-# Prevent Apache warning
 RUN echo "ServerName localhost" >> /etc/apache2/apache2.conf
 
-# Install Composer
+# Install composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
-# Composer environment
 ENV COMPOSER_ALLOW_SUPERUSER=1
-ENV COMPOSER_MEMORY_LIMIT=-1
 
-# Copy composer files first
+# Copy composer files
 COPY composer.json composer.lock ./
 
-# Install PHP dependencies
+# Install PHP deps
 RUN composer install \
     --no-dev \
     --optimize-autoloader \
     --no-interaction \
     --ignore-platform-reqs
 
-# Copy application source
+# Copy source
 COPY . .
 
-# Copy built frontend assets
+# Copy frontend build
 COPY --from=assets-builder /app/public/build ./public/build
 
-# Set permissions
+# Permissions
 RUN chown -R www-data:www-data storage bootstrap/cache
 
-# Laravel production environment
-ENV APP_ENV=production
-ENV APP_DEBUG=false
-
-# Laravel optimization
-RUN php artisan package:discover --ansi && \
-    php artisan config:cache && \
+# Laravel optimize
+RUN php artisan config:cache && \
     php artisan route:cache && \
     php artisan view:cache
 
-# Expose Apache port
 EXPOSE 80
 
-# Healthcheck for Coolify / Traefik
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s \
 CMD curl -f http://localhost || exit 1
 
-# Start Apache
 CMD ["apache2-foreground"]
