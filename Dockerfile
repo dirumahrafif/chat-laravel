@@ -53,6 +53,8 @@ RUN echo 'server { \
 RUN chown -R www-data:www-data /app/storage /app/bootstrap/cache
 RUN chmod -R 775 /app/storage /app/bootstrap/cache
 
+# FIX PHP-FPM LISTEN
+RUN sed -i 's|listen = .*|listen = 127.0.0.1:9000|g' /usr/local/etc/php-fpm.d/www.conf
 EXPOSE 80
 
 # Jalankan PHP-FPM dan Nginx bersamaan
