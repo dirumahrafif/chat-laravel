@@ -56,4 +56,4 @@ RUN chmod -R 775 /app/storage /app/bootstrap/cache
 EXPOSE 80
 
 # Jalankan PHP-FPM dan Nginx bersamaan
-CMD php-fpm -D && nginx -g "daemon off;"
+CMD ["sh", "-c", "php-fpm -D && nginx -g 'daemon off;'"]
