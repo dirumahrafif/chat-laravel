@@ -1,61 +1,98 @@
 FROM php:8.3-fpm-alpine
 
-# Install system dependencies & extension compiler tools
+# Install packages
 RUN apk add --no-cache \
     nginx \
-    shadow \
+    supervisor \
     curl \
+    git \
+    unzip \
+    zip \
+    nodejs \
+    npm \
     libpng-dev \
     libxml2-dev \
     libzip-dev \
-    zip \
-    unzip \
-    git \
-    nodejs \
-    npm \
     oniguruma-dev
 
-# Install PHP extensions yang dibutuhkan Laravel secara lengkap
-RUN docker-php-ext-install pdo_mysql bcmath gd xml zip mbstring
+# Install PHP extensions
+RUN docker-php-ext-install \
+    pdo_mysql \
+    bcmath \
+    gd \
+    xml \
+    zip \
+    mbstring
 
-# Install Composer terbaru
+# Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
+# App directory
 WORKDIR /app
+
+# Copy files
 COPY . .
 
-# Install dependencies dengan mengabaikan pengecekan platform lokal vps yang ketat
-RUN composer install --no-dev --optimize-autoloader --ignore-platform-reqs
+# Install PHP dependencies
+RUN composer install \
+    --no-dev \
+    --optimize-autoloader \
+    --ignore-platform-reqs
 
-# Build frontend assets (Vite / Mix)
+# Build frontend
 RUN npm install && npm run build
 
-# Setup Nginx configuration inline
-RUN echo 'server { \
-    listen 80; \
-    root /app/public; \
-    index index.php index.html; \
-    location / { \
-        try_files $uri $uri/ /index.php?$query_string; \
-    } \
-    location ~ \.php$ { \
-        try_files $uri =404; \
-        fastcgi_split_path_info ^(.+\.php)(/.+)$; \
-        fastcgi_pass 127.0.0.1:9000; \
-        fastcgi_index index.php; \
-        include fastcgi_params; \
-        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name; \
-        fastcgi_param PATH_INFO $fastcgi_path_info; \
-    } \
+# Laravel permissions
+RUN mkdir -p storage/framework/cache storage/framework/sessions storage/framework/views bootstrap/cache && \
+    chown -R www-data:www-data /app && \
+    chmod -R 775 storage bootstrap/cache
+
+# Generate app key jika belum ada
+RUN cp .env.example .env || true
+RUN php artisan key:generate || true
+
+# PHP-FPM listen TCP
+RUN sed -i 's|listen = .*|listen = 9000|g' /usr/local/etc/php-fpm.d/www.conf
+
+# Nginx config
+RUN rm -f /etc/nginx/http.d/default.conf && \
+echo 'server {
+    listen 80;
+    server_name _;
+    root /app/public;
+
+    index index.php index.html;
+
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    location ~ \.php$ {
+        include fastcgi_params;
+        fastcgi_pass 127.0.0.1:9000;
+        fastcgi_index index.php;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+    }
+
+    client_max_body_size 100M;
 }' > /etc/nginx/http.d/default.conf
 
-# === TAMBAHKAN DUA BARIS PERINTAH PERMISSION INI ===
-RUN chown -R www-data:www-data /app/storage /app/bootstrap/cache
-RUN chmod -R 775 /app/storage /app/bootstrap/cache
+# Supervisor config
+RUN mkdir -p /etc/supervisor.d && \
+echo '[supervisord]
+nodaemon=true
 
-# FIX PHP-FPM LISTEN
-RUN sed -i 's|listen = .*|listen = 127.0.0.1:9000|g' /usr/local/etc/php-fpm.d/www.conf
+[program:php-fpm]
+command=php-fpm --nodaemonize
+autostart=true
+autorestart=true
+
+[program:nginx]
+command=nginx -g "daemon off;"
+autostart=true
+autorestart=true
+' > /etc/supervisor.d/supervisord.ini
+
 EXPOSE 80
 
-# Jalankan PHP-FPM dan Nginx bersamaan
-CMD php-fpm -D && nginx -g "daemon off;"
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor.d/supervisord.ini"]
