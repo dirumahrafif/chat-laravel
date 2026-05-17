@@ -1,59 +1,58 @@
-FROM php:8.3-fpm-alpine
+# Stage 1: Build assets
+FROM node:20-alpine AS assets-builder
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+RUN npm run build
 
-# Install system dependencies & extension compiler tools
+# Stage 2: PHP Application
+FROM dunglas/frankenphp:latest-php8.3-alpine
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies and PHP extensions
 RUN apk add --no-cache \
-    nginx \
-    shadow \
-    curl \
+    bash \
+    git \
     libpng-dev \
-    libxml2-dev \
     libzip-dev \
     zip \
     unzip \
-    git \
-    nodejs \
-    npm \
-    oniguruma-dev
+    icu-dev
 
-# Install PHP extensions yang dibutuhkan Laravel secara lengkap
-RUN docker-php-ext-install pdo_mysql bcmath gd xml zip mbstring
+RUN install-php-extensions \
+    pcntl \
+    bcmath \
+    gd \
+    intl \
+    zip \
+    pdo_mysql \
+    pdo_pgsql
 
-# Install Composer terbaru
+# Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
-WORKDIR /app
+# Copy application files
 COPY . .
 
-# Install dependencies dengan mengabaikan pengecekan platform lokal vps yang ketat
-RUN composer install --no-dev --optimize-autoloader --ignore-platform-reqs
+# Copy built assets from Stage 1
+COPY --from=assets-builder /app/public/build ./public/build
 
-# Build frontend assets (Vite / Mix)
-RUN npm install && npm run build
+# Install PHP dependencies
+RUN composer install --no-dev --optimize-autoloader --no-interaction
 
-# Setup Nginx configuration inline
-RUN echo 'server { \
-    listen 80; \
-    root /app/public; \
-    index index.php index.html; \
-    location / { \
-        try_files $uri $uri/ /index.php?$query_string; \
-    } \
-    location ~ \.php$ { \
-        try_files $uri =404; \
-        fastcgi_split_path_info ^(.+\.php)(/.+)$; \
-        fastcgi_pass 127.0.0.1:9000; \
-        fastcgi_index index.php; \
-        include fastcgi_params; \
-        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name; \
-        fastcgi_param PATH_INFO $fastcgi_path_info; \
-    } \
-}' > /etc/nginx/http.d/default.conf
+# Set permissions
+RUN chown -R www-data:www-data storage bootstrap/cache
 
-# === TAMBAHKAN DUA BARIS PERINTAH PERMISSION INI ===
-RUN chown -R www-data:www-data /app/storage /app/bootstrap/cache
-RUN chmod -R 775 /app/storage /app/bootstrap/cache
+# Environment variables for production
+ENV APP_ENV=production
+ENV APP_DEBUG=false
+ENV FRANKENPHP_CONFIG="worker ./public/index.php"
 
+# Expose port 80
 EXPOSE 80
 
-# Jalankan PHP-FPM dan Nginx bersamaan
-CMD php-fpm -D && nginx -g "daemon off;"
+# Jalankan optimasi Laravel dan jalankan server
+CMD sh -c "php artisan config:cache && php artisan route:cache && php artisan view:cache && if [ \"\$RUN_MIGRATIONS\" = \"true\" ]; then php artisan migrate --force; fi && frankenphp php-server -r public/"
