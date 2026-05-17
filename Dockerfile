@@ -24,7 +24,8 @@ RUN apk add --no-cache \
     libxml2-dev \
     sqlite-dev \
     oniguruma-dev \
-    curl-dev
+    curl-dev \
+    libffi-dev
 
 # Install PHP extensions
 RUN install-php-extensions \
@@ -49,9 +50,7 @@ ENV COMPOSER_MEMORY_LIMIT=-1
 COPY composer.json composer.lock ./
 
 # Install PHP dependencies
-# --ignore-platform-reqs akan melewati pengecekan ekstensi yang sangat spesifik saat build
-# dependensi tetap akan diinstal, dan kita sudah menginstal ekstensi PHP yang umum di atas
-RUN composer install --no-dev --no-scripts --no-autoloader --ignore-platform-reqs --no-interaction
+RUN composer install --no-dev --no-scripts --no-autoloader --ignore-platform-reqs --no-interaction -vvv
 
 # Copy application files
 COPY . .
