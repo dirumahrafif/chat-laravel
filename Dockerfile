@@ -7,7 +7,7 @@ COPY . .
 RUN npm run build
 
 # Stage 2: PHP Application
-FROM dunglas/frankenphp:latest-php8.3-alpine
+FROM dunglas/frankenphp:latest-php8.4-alpine
 
 # Set working directory
 WORKDIR /app
@@ -50,7 +50,7 @@ ENV COMPOSER_MEMORY_LIMIT=-1
 COPY composer.json composer.lock ./
 
 # Install PHP dependencies
-RUN composer install --no-dev --no-scripts --no-autoloader --ignore-platform-reqs --no-interaction -vvv
+RUN composer install --no-dev --no-scripts --no-autoloader --ignore-platform-reqs --no-interaction
 
 # Copy application files
 COPY . .
