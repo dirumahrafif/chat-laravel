@@ -1,6 +1,6 @@
 FROM php:8.3-fpm-alpine
 
-# Install packages
+# Install system packages
 RUN apk add --no-cache \
     nginx \
     supervisor \
@@ -27,41 +27,54 @@ RUN docker-php-ext-install \
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
-# App directory
+# Set working directory
 WORKDIR /app
 
-# Copy files
+# Copy application
 COPY . .
 
-# Install PHP dependencies
+# Install composer dependencies
 RUN composer install \
     --no-dev \
     --optimize-autoloader \
     --ignore-platform-reqs
 
-# Build frontend
+# Build frontend assets
 RUN npm install && npm run build
 
-# Laravel permissions
-RUN mkdir -p storage/framework/cache storage/framework/sessions storage/framework/views bootstrap/cache && \
-    chown -R www-data:www-data /app && \
+# Ensure Laravel directories exist
+RUN mkdir -p \
+    storage/framework/cache \
+    storage/framework/sessions \
+    storage/framework/views \
+    bootstrap/cache
+
+# Permissions
+RUN chown -R www-data:www-data /app && \
     chmod -R 775 storage bootstrap/cache
 
-# Generate app key jika belum ada
+# Generate app key if needed
 RUN cp .env.example .env || true
 RUN php artisan key:generate || true
 
-# PHP-FPM listen TCP
-RUN sed -i 's|listen = .*|listen = 9000|g' /usr/local/etc/php-fpm.d/www.conf
+# Configure PHP-FPM to listen on TCP
+RUN sed -i 's|listen = .*|listen = 127.0.0.1:9000|g' \
+    /usr/local/etc/php-fpm.d/www.conf
 
-# Nginx config
-RUN rm -f /etc/nginx/http.d/default.conf && \
-echo 'server {
+# Remove default nginx config
+RUN rm -f /etc/nginx/http.d/default.conf
+
+# Create nginx config
+RUN cat > /etc/nginx/http.d/default.conf << 'EOF'
+server {
     listen 80;
     server_name _;
-    root /app/public;
 
+    root /app/public;
     index index.php index.html;
+
+    access_log /var/log/nginx/access.log;
+    error_log /var/log/nginx/error.log;
 
     location / {
         try_files $uri $uri/ /index.php?$query_string;
@@ -69,29 +82,37 @@ echo 'server {
 
     location ~ \.php$ {
         include fastcgi_params;
+
         fastcgi_pass 127.0.0.1:9000;
         fastcgi_index index.php;
+
         fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        fastcgi_param PATH_INFO $fastcgi_path_info;
     }
 
     client_max_body_size 100M;
-}' > /etc/nginx/http.d/default.conf
+}
+EOF
 
-# Supervisor config
-RUN mkdir -p /etc/supervisor.d && \
-echo '[supervisord]
+# Create supervisor config
+RUN mkdir -p /etc/supervisor.d
+
+RUN cat > /etc/supervisor.d/supervisord.ini << 'EOF'
+[supervisord]
 nodaemon=true
 
 [program:php-fpm]
 command=php-fpm --nodaemonize
 autostart=true
 autorestart=true
+priority=5
 
 [program:nginx]
 command=nginx -g "daemon off;"
 autostart=true
 autorestart=true
-' > /etc/supervisor.d/supervisord.ini
+priority=10
+EOF
 
 EXPOSE 80
 
