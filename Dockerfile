@@ -1,12 +1,22 @@
-# Stage 1: Build assets
+# =========================
+# Stage 1: Build Frontend Assets
+# =========================
 FROM node:20-alpine AS assets-builder
+
 WORKDIR /app
+
 COPY package*.json ./
+
 RUN npm install
+
 COPY . .
+
 RUN npm run build
 
-# Stage 2: PHP Application
+
+# =========================
+# Stage 2: PHP + Apache
+# =========================
 FROM php:8.4-apache
 
 # Set working directory
@@ -16,56 +26,84 @@ WORKDIR /var/www/html
 RUN apt-get update && apt-get install -y \
     git \
     curl \
+    unzip \
+    zip \
     libpng-dev \
     libonig-dev \
     libxml2-dev \
-    zip \
-    unzip \
     libsqlite3-dev \
-    libzip-dev
+    libzip-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install PHP extensions
-RUN docker-php-ext-install pdo_mysql pdo_sqlite mbstring exif pcntl bcmath gd zip
+RUN docker-php-ext-install \
+    pdo_mysql \
+    pdo_sqlite \
+    mbstring \
+    exif \
+    pcntl \
+    bcmath \
+    gd \
+    zip
 
-# Enable Apache mod_rewrite
+# Enable Apache rewrite module
 RUN a2enmod rewrite
 
-# Ubah DocumentRoot ke public
-ENV APACHE_DOCUMENT_ROOT /var/www/html/public
-RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/sites-available/*.conf
-RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/apache2.conf /etc/apache2/conf-available/*.conf
+# Set Apache DocumentRoot to Laravel public folder
+ENV APACHE_DOCUMENT_ROOT=/var/www/html/public
+
+RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' \
+    /etc/apache2/sites-available/*.conf
+
+RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' \
+    /etc/apache2/apache2.conf \
+    /etc/apache2/conf-available/*.conf
+
+# Prevent Apache warning
+RUN echo "ServerName localhost" >> /etc/apache2/apache2.conf
 
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
-# Set Composer environment variables
+# Composer environment
 ENV COMPOSER_ALLOW_SUPERUSER=1
 ENV COMPOSER_MEMORY_LIMIT=-1
 
-# Copy composer files first for better caching
+# Copy composer files first
 COPY composer.json composer.lock ./
 
 # Install PHP dependencies
-RUN composer install --no-dev --no-scripts --no-autoloader --ignore-platform-reqs --no-interaction
+RUN composer install \
+    --no-dev \
+    --optimize-autoloader \
+    --no-interaction \
+    --ignore-platform-reqs
 
-# Copy application files
+# Copy application source
 COPY . .
 
-# Copy built assets from Stage 1
+# Copy built frontend assets
 COPY --from=assets-builder /app/public/build ./public/build
-
-# Generate optimized autoloader
-RUN composer dump-autoload --optimize --no-dev --no-scripts
 
 # Set permissions
 RUN chown -R www-data:www-data storage bootstrap/cache
 
-# Environment variables for production
+# Laravel production environment
 ENV APP_ENV=production
 ENV APP_DEBUG=false
 
-# Expose port 80
+# Laravel optimization
+RUN php artisan package:discover --ansi && \
+    php artisan config:cache && \
+    php artisan route:cache && \
+    php artisan view:cache
+
+# Expose Apache port
 EXPOSE 80
 
-# Jalankan optimasi Laravel dan jalankan server
-CMD sh -c "php artisan package:discover --ansi && php artisan config:cache && php artisan route:cache && php artisan view:cache && if [ \"\$RUN_MIGRATIONS\" = \"true\" ]; then php artisan migrate --force; fi && apache2-foreground"
+# Healthcheck for Coolify / Traefik
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s \
+CMD curl -f http://localhost || exit 1
+
+# Start Apache
+CMD ["apache2-foreground"]

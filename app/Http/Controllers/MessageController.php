@@ -17,6 +17,11 @@ class MessageController extends Controller
             return response()->json(['error' => 'Room has expired.'], 410);
         }
 
+        $userId = session('chat_user_id');
+        if ($userId) {
+            ChatUser::where('id', $userId)->where('room_id', $room->id)->update(['last_seen' => now()]);
+        }
+
         $messages = Message::where('room_id', $room->id)
             ->with('user:id,name')
             ->orderBy('created_at')

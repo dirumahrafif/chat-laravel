@@ -29,6 +29,7 @@ class RoomController extends Controller
         $user = ChatUser::create([
             'room_id' => $room->id,
             'name' => $name,
+            'last_seen' => now(),
         ]);
 
         session([
