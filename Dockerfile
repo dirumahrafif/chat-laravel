@@ -7,7 +7,7 @@ COPY . .
 RUN npm run build
 
 # Stage 2: PHP Application
-FROM dunglas/frankenphp:latest-php8.4-alpine
+FROM dunglas/frankenphp:php8.4-alpine
 
 # Set working directory
 WORKDIR /app
