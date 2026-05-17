@@ -1,36 +1,59 @@
-FROM php:8.4-apache
+FROM php:8.4-fpm-alpine
 
-WORKDIR /var/www/html
-
-# Install dependency Linux
-RUN apt-get update && apt-get install -y \
-    git \
+# Install system dependencies & extension compiler tools
+RUN apk add --no-cache \
+    nginx \
+    shadow \
     curl \
-    unzip \
-    zip \
+    libpng-dev \
+    libxml2-dev \
     libzip-dev \
-    libonig-dev \
-    && rm -rf /var/lib/apt/lists/*
+    zip \
+    unzip \
+    git \
+    nodejs \
+    npm \
+    oniguruma-dev
 
-# Install PHP extensions
-RUN docker-php-ext-install \
-    pdo_mysql \
-    mbstring \
-    zip
+# Install PHP extensions yang dibutuhkan Laravel secara lengkap
+RUN docker-php-ext-install pdo_mysql bcmath gd xml zip mbstring
 
-# Enable Apache rewrite
-RUN a2enmod rewrite
+# Install Composer terbaru
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
-# Copy project
+WORKDIR /app
 COPY . .
 
-# Set document root ke public Laravel
-ENV APACHE_DOCUMENT_ROOT=/var/www/html/public
+# Install dependencies dengan mengabaikan pengecekan platform lokal vps yang ketat
+RUN composer install --no-dev --optimize-autoloader --ignore-platform-reqs
 
-RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' \
-    /etc/apache2/sites-available/*.conf
+# Build frontend assets (Vite / Mix)
+RUN npm install && npm run build
 
-# Permission
-RUN chown -R www-data:www-data /var/www/html
+# Setup Nginx configuration inline
+RUN echo 'server { \
+    listen 80; \
+    root /app/public; \
+    index index.php index.html; \
+    location / { \
+        try_files $uri $uri/ /index.php?$query_string; \
+    } \
+    location ~ \.php$ { \
+        try_files $uri =404; \
+        fastcgi_split_path_info ^(.+\.php)(/.+)$; \
+        fastcgi_pass 127.0.0.1:9000; \
+        fastcgi_index index.php; \
+        include fastcgi_params; \
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name; \
+        fastcgi_param PATH_INFO $fastcgi_path_info; \
+    } \
+}' > /etc/nginx/http.d/default.conf
+
+# === TAMBAHKAN DUA BARIS PERINTAH PERMISSION INI ===
+RUN chown -R www-data:www-data /app/storage /app/bootstrap/cache
+RUN chmod -R 775 /app/storage /app/bootstrap/cache
 
 EXPOSE 80
+
+# Jalankan PHP-FPM dan Nginx bersamaan
+CMD php-fpm -D && nginx -g "daemon off;"
