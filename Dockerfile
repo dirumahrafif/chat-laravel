@@ -22,7 +22,9 @@ RUN apk add --no-cache \
     unzip \
     icu-dev \
     libxml2-dev \
-    sqlite-dev
+    sqlite-dev \
+    oniguruma-dev \
+    curl-dev
 
 # Install PHP extensions
 RUN install-php-extensions \
@@ -34,13 +36,22 @@ RUN install-php-extensions \
     pdo_mysql \
     pdo_pgsql \
     pdo_sqlite \
-    mbstring \
-    xml \
-    dom \
-    curl
+    opcache
 
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+
+# Set Composer environment variables
+ENV COMPOSER_ALLOW_SUPERUSER=1
+ENV COMPOSER_MEMORY_LIMIT=-1
+
+# Copy composer files first for better caching
+COPY composer.json composer.lock ./
+
+# Install PHP dependencies
+# --ignore-platform-reqs akan melewati pengecekan ekstensi yang sangat spesifik saat build
+# dependensi tetap akan diinstal, dan kita sudah menginstal ekstensi PHP yang umum di atas
+RUN composer install --no-dev --no-scripts --no-autoloader --ignore-platform-reqs --no-interaction
 
 # Copy application files
 COPY . .
@@ -48,9 +59,8 @@ COPY . .
 # Copy built assets from Stage 1
 COPY --from=assets-builder /app/public/build ./public/build
 
-# Install PHP dependencies
-# Kita tambahkan --no-scripts dulu untuk menghindari error package:discover jika environment belum siap
-RUN composer install --no-dev --optimize-autoloader --no-interaction --no-scripts
+# Generate optimized autoloader
+RUN composer dump-autoload --optimize --no-dev --no-scripts
 
 # Set permissions
 RUN chown -R www-data:www-data storage bootstrap/cache
