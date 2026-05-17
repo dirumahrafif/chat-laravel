@@ -1,4 +1,4 @@
-FROM php:8.4-fpm-alpine
+FROM php:8.3-fpm-alpine
 
 # Install system dependencies & extension compiler tools
 RUN apk add --no-cache \
@@ -41,7 +41,7 @@ RUN echo 'server { \
     location ~ \.php$ { \
         try_files $uri =404; \
         fastcgi_split_path_info ^(.+\.php)(/.+)$; \
-        fastcgi_pass 127.0.0.1:9000; \
+        fastcgi_pass 127.0.0.1:3000; \
         fastcgi_index index.php; \
         include fastcgi_params; \
         fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name; \
@@ -56,4 +56,4 @@ RUN chmod -R 775 /app/storage /app/bootstrap/cache
 EXPOSE 80
 
 # Jalankan PHP-FPM dan Nginx bersamaan
-CMD ["sh", "-c", "php-fpm -D && nginx -g 'daemon off;'"]
+CMD php-fpm -D && nginx -g "daemon off;"
