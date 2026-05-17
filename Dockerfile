@@ -7,37 +7,33 @@ COPY . .
 RUN npm run build
 
 # Stage 2: PHP Application
-FROM dunglas/frankenphp:php8.4-alpine
+FROM php:8.4-apache
 
 # Set working directory
-WORKDIR /app
+WORKDIR /var/www/html
 
 # Install system dependencies
-RUN apk add --no-cache \
-    bash \
+RUN apt-get update && apt-get install -y \
     git \
+    curl \
     libpng-dev \
-    libzip-dev \
+    libonig-dev \
+    libxml2-dev \
     zip \
     unzip \
-    icu-dev \
-    libxml2-dev \
-    sqlite-dev \
-    oniguruma-dev \
-    curl-dev \
-    libffi-dev
+    libsqlite3-dev \
+    libzip-dev
 
 # Install PHP extensions
-RUN install-php-extensions \
-    pcntl \
-    bcmath \
-    gd \
-    intl \
-    zip \
-    pdo_mysql \
-    pdo_pgsql \
-    pdo_sqlite \
-    opcache
+RUN docker-php-ext-install pdo_mysql pdo_sqlite mbstring exif pcntl bcmath gd zip
+
+# Enable Apache mod_rewrite
+RUN a2enmod rewrite
+
+# Ubah DocumentRoot ke public
+ENV APACHE_DOCUMENT_ROOT /var/www/html/public
+RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/sites-available/*.conf
+RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/apache2.conf /etc/apache2/conf-available/*.conf
 
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
@@ -67,10 +63,9 @@ RUN chown -R www-data:www-data storage bootstrap/cache
 # Environment variables for production
 ENV APP_ENV=production
 ENV APP_DEBUG=false
-ENV FRANKENPHP_CONFIG="worker ./public/index.php"
 
 # Expose port 80
 EXPOSE 80
 
 # Jalankan optimasi Laravel dan jalankan server
-CMD sh -c "php artisan package:discover --ansi && php artisan config:cache && php artisan route:cache && php artisan view:cache && if [ \"\$RUN_MIGRATIONS\" = \"true\" ]; then php artisan migrate --force; fi && frankenphp php-server -r public/"
+CMD sh -c "php artisan package:discover --ansi && php artisan config:cache && php artisan route:cache && php artisan view:cache && if [ \"\$RUN_MIGRATIONS\" = \"true\" ]; then php artisan migrate --force; fi && apache2-foreground"
